@@ -1,0 +1,138 @@
+# ==============================================================================
+# BARRICADE - COMPREHENSIVE GITIGNORE CONFIGURATION
+# ==============================================================================
+# Protects system-sensitive data, user credentials, environmental secrets, 
+# and IDE artifacts from disclosure in shared repositories.
+
+# ------------------------------------------------------------------------------
+# 1. CRITICAL: Security & Environment Variables (Never Commit!)
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env*.local
+*.env
+.env.example.user
+secrets.json
+config/secrets.*
+
+# White-list the safe template file
+!.env.example
+
+# ------------------------------------------------------------------------------
+# 2. Private Credentials, Keys & Certificates
+# ------------------------------------------------------------------------------
+*.pem
+*.key
+*.pub
+*.cert
+*.pfx
+*.p12
+*.der
+*.crt
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+*credentials*.xml
+*credentials*.json
+*service-account*.json
+*serviceAccount*.json
+*firebase-key*.json
+*-key.json
+google-services.json
+GoogleService-Info.plist
+
+# ------------------------------------------------------------------------------
+# 3. Firebase Specific Logs & Cache
+# ------------------------------------------------------------------------------
+.firebase/
+*firebase-debug.log
+*firestore-debug.log
+*pubsub-debug.log
+*ui-debug.log
+*auth-debug.log
+*storage-debug.log
+*database-debug.log
+
+# ------------------------------------------------------------------------------
+# 4. Dependency Directories (Reinstalled via package managers)
+# ------------------------------------------------------------------------------
+node_modules/
+jspm_packages/
+web_modules/
+
+# ------------------------------------------------------------------------------
+# 5. Build and Distribution Artifacts
+# ------------------------------------------------------------------------------
+dist/
+build/
+out/
+.next/
+.nuxt/
+*.tsbuildinfo
+
+# ------------------------------------------------------------------------------
+# 6. Development Tools & Linters Cache
+# ------------------------------------------------------------------------------
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.prettiercache
+.svelte-kit/
+.turbo/
+.cache/
+.vite/
+
+# ------------------------------------------------------------------------------
+# 7. Testing Coverage Reports
+# ------------------------------------------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+
+# ------------------------------------------------------------------------------
+# 8. Log Files
+# ------------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# 9. IDEs & Rich Text Editors Config (User/Machine Specific)
+# ------------------------------------------------------------------------------
+# vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/code-workspace
+.history/
+
+# IntelliJ / WebStorm
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ------------------------------------------------------------------------------
+# 10. OS Specific Files (Unnecessary and noisy)
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

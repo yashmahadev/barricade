@@ -1,0 +1,6 @@
+{
+  "name": "Barricade",
+  "description": "A strategic board game where players race to the other side while building walls to block their opponent.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

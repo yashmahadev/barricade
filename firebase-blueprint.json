@@ -1,0 +1,51 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "description": "Stores user profiles and global statistics.",
+      "fields": {
+         "uid": "string",
+         "displayName": "string",
+         "gamesPlayed": "number",
+         "wins": "number",
+         "losses": "number",
+         "createdAt": "timestamp"
+      }
+    },
+    {
+      "name": "games",
+      "description": "Stores multiplayer game sessions.",
+      "fields": {
+        "status": "string ('waiting', 'in_progress', 'finished')",
+        "hostId": "string",
+        "hostName": "string",
+        "guestId": "string",
+        "guestName": "string",
+        "timeLimit": "number",
+        "initialWalls": "number",
+        "createdAt": "timestamp",
+        "p1Pos": "map",
+        "p2Pos": "map",
+        "p1Walls": "number",
+        "p2Walls": "number",
+        "hWalls": "string",
+        "vWalls": "string",
+        "turn": "number",
+        "winner": "number",
+        "history": "array",
+        "lastMoveTime": "timestamp"
+      }
+    },
+    {
+      "name": "emotes",
+      "parent": "games",
+      "description": "Stores quick emotes and chat messages.",
+      "fields": {
+        "senderId": "string",
+        "senderName": "string",
+        "emote": "string",
+        "timestamp": "timestamp"
+      }
+    }
+  ]
+}
