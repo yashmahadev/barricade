@@ -1,0 +1,58 @@
+name: Deploy Barricade
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-and-deploy"
+  cancel-in-progress: false
+
+jobs:
+  # Job 1: Build the Vite application
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Build SPA (Production Compilation)
+        run: npm run build
+        # Vite will default to '/' for assets. For custom sub-directories,
+        # Vite respects standard paths, or you can dynamically configure it.
+
+      - name: Setup Pages Asset Configuration
+        uses: actions/configure-pages@v5
+
+      - name: Upload Production Static Build Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+  # Job 2: Deploy to GitHub Pages (Built-in free web hosting)
+  deploy-github-pages:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy Build to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
