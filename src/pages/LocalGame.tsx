@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { canPlaceWall, getValidMoves, Position } from '../game/logic';
-import { RotateCcw, Minus, BarChart2, X, Undo2, Home, Settings, History } from 'lucide-react';
+import { 
+  RotateCcw, Minus, BarChart2, X, Undo2, Home, 
+  Settings, History, HelpCircle, Volume2, VolumeX, Music, HelpCircle as GuideIcon 
+} from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { playSound } from '../lib/audio';
+import { playSound, startBGM, toggleMusic } from '../lib/audio';
 import { getBotAction } from '../game/bot';
 import { useNavigate } from 'react-router-dom';
+import { getSavedTheme, GameTheme } from '../lib/theme';
 
 type GameState = {
   p1Pos: Position;
@@ -47,15 +51,23 @@ export default function LocalGame() {
   const historyEndRef = useRef<HTMLDivElement | null>(null);
   const [stats, setStats] = useState({ gamesPlayed: 0, p1Wins: 0, p2Wins: 0 });
 
+  // Customizer Settings
+  const [theme, setTheme] = useState<GameTheme>(getSavedTheme());
+  const [musicMuted, setMusicMuted] = useState(localStorage.getItem('barricadeMusicMuted') === 'true');
+  const [sfxMuted, setSfxMuted] = useState(localStorage.getItem('barricadeSfxMuted') === 'true');
+
+  useEffect(() => {
+    startBGM();
+  }, []);
+
   useEffect(() => {
     if (showHistory && historyEndRef.current) {
       historyEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [history.length, showHistory]);
-  const [timeLeft, setTimeLeft] = useState(30);
 
+  const [timeLeft, setTimeLeft] = useState(30);
   const [undoStack, setUndoStack] = useState<GameState[]>([]);
-  
   const currentStateRef = useRef<GameState>({ p1Pos, p2Pos, p1Walls, p2Walls, hWalls, vWalls, turn, history });
   
   useEffect(() => {
@@ -78,10 +90,10 @@ export default function LocalGame() {
 
   const handleUndo = () => {
     if (undoStack.length === 0) return;
+    playSound('error');
     const lastState = undoStack[undoStack.length - 1];
     setUndoStack(prev => prev.slice(0, -1));
     
-    // If we are undoing from a won state, revert the statistics update
     if (winner !== null) {
       setStats(prev => {
         const nextStats = {
@@ -103,7 +115,7 @@ export default function LocalGame() {
     setTurn(lastState.turn);
     setHistory(lastState.history);
     setWinner(null);
-    setTimeLeft(30);
+    setTimeLeft(timeLimit);
   };
 
   useEffect(() => {
@@ -111,9 +123,7 @@ export default function LocalGame() {
     if (storedStats) {
       try {
         setStats(JSON.parse(storedStats));
-      } catch (e) {
-        // Ignore parsing errors
-      }
+      } catch (e) {}
     }
   }, []);
 
@@ -159,11 +169,10 @@ export default function LocalGame() {
         return nextStats;
       });
       const winnerName = winner === 1 ? p1Name : (gameMode === 'bot' && winner === 2 ? 'Computer' : p2Name);
-      setHistory(h => [...h, `Game Over! ${winnerName} won.`]);
+      setHistory(h => [...h, `Game Over! ${winnerName} breaches target zone.`]);
       playSound('win');
 
-      const colors = winner === 1 ? ['#06b6d4', '#ffffff'] : ['#f59e0b', '#ffffff'];
-      
+      const colors = winner === 1 ? [theme.p1.shadowColor, '#ffffff'] : [theme.p2.shadowColor, '#ffffff'];
       const duration = 3000;
       const end = Date.now() + duration;
 
@@ -187,13 +196,13 @@ export default function LocalGame() {
           requestAnimationFrame(frame);
         }
       };
-      
       frame();
     }
   }, [winner]);
 
+  // Turn Timeout Logic
   useEffect(() => {
-    if (winner || timeLimit >= 999) return;
+    if (winner || timeLimit >= 999 || appState === 'menu') return;
     setTimeLeft(timeLimit);
     const timerId = setInterval(() => {
       setTimeLeft(prev => {
@@ -201,7 +210,7 @@ export default function LocalGame() {
           pushState();
           const currentTurn = currentStateRef.current.turn;
           const turnName = currentTurn === 1 ? p1Name : (gameMode === 'bot' ? 'Computer' : p2Name);
-          setHistory(h => [...h, `${turnName} ran out of time. Turn skipped.`]);
+          setHistory(h => [...h, `${turnName} buffer limit exceeded. Turn skipped.`]);
           playSound('error');
           setTurn(t => t === 1 ? 2 : 1);
           return timeLimit;
@@ -212,7 +221,7 @@ export default function LocalGame() {
     return () => clearInterval(timerId);
   }, [turn, winner, timeLimit, appState]);
 
-  // Bot Logic Effect
+  // Bot Turn Trigger
   useEffect(() => {
     if (appState === 'game' && gameMode === 'bot' && turn === 2 && !winner) {
       const timerId = setTimeout(() => {
@@ -232,12 +241,11 @@ export default function LocalGame() {
   const currentPlayerPos = turn === 1 ? p1Pos : p2Pos;
   const currOpponentPos  = turn === 1 ? p2Pos : p1Pos;
   const currentPlayerWalls = turn === 1 ? p1Walls : p2Walls;
-
   const validMoves = winner ? [] : getValidMoves(currentPlayerPos, currOpponentPos, hWalls, vWalls);
 
   const handleCellClick = (r: number, c: number, isBot = false) => {
     if (winner) return;
-    if (turn === 2 && gameMode === 'bot' && !isBot) return; // Prevent human from playing bot's turn
+    if (turn === 2 && gameMode === 'bot' && !isBot) return;
     
     const isValidMove = validMoves.some(m => m.r === r && m.c === c);
     if (!isValidMove) return;
@@ -247,13 +255,13 @@ export default function LocalGame() {
 
     if (turn === 1) {
       setP1Pos({ r, c });
-      setHistory(h => [...h, `${p1Name} moved to Row ${r + 1}, Col ${c + 1}`]);
+      setHistory(h => [...h, `${p1Name} shifted to R${r + 1}, C${c + 1}`]);
       if (r === 8) setWinner(1);
       else setTurn(2);
     } else {
       setP2Pos({ r, c });
       const currentP2Name = gameMode === 'bot' ? 'Computer' : p2Name;
-      setHistory(h => [...h, `${currentP2Name} moved to Row ${r + 1}, Col ${c + 1}`]);
+      setHistory(h => [...h, `${currentP2Name} shifted to R${r + 1}, C${c + 1}`]);
       if (r === 0) setWinner(2);
       else setTurn(1);
     }
@@ -282,16 +290,29 @@ export default function LocalGame() {
       
       if (turn === 1) {
          setP1Walls(w => w - 1);
-         setHistory(h => [...h, `${p1Name} placed a ${dirToUse === 'H' ? 'Horizontal' : 'Vertical'} wall at Row ${r + 1}, Col ${c + 1}`]);
+         setHistory(h => [...h, `${p1Name} locked Horizontal Firewall at R${r + 1}, C${c + 1}`]);
          setTurn(2);
       } else {
          setP2Walls(w => w - 1);
          const currentP2Name = gameMode === 'bot' ? 'Computer' : p2Name;
-         setHistory(h => [...h, `${currentP2Name} placed a ${dirToUse === 'H' ? 'Horizontal' : 'Vertical'} wall at Row ${r + 1}, Col ${c + 1}`]);
+         setHistory(h => [...h, `${currentP2Name} locked ${dirToUse === 'H' ? 'Horizontal' : 'Vertical'} Firewall at R${r + 1}, C${c + 1}`]);
          setTurn(1);
       }
       setHoverIntersect(null);
     }
+  };
+
+  const handleToggleMusic = () => {
+    const nextMuted = !musicMuted;
+    setMusicMuted(nextMuted);
+    toggleMusic(nextMuted);
+  };
+
+  const handleToggleSfx = () => {
+    const nextMuted = !sfxMuted;
+    setSfxMuted(nextMuted);
+    localStorage.setItem('barricadeSfxMuted', String(nextMuted));
+    if (!nextMuted) playSound('move');
   };
 
   const renderCells = () => {
@@ -309,22 +330,21 @@ export default function LocalGame() {
             key={`cell-${r}-${c}`}
             onClick={() => handleCellClick(r, c)}
             className={`
-              relative w-full h-full rounded-sm sm:rounded-md transition-all duration-300
-              ${isP1 ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.5)] z-10' : ''}
-              ${isP2 ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.5)] z-10' : ''}
-              ${isActiveP1 ? 'ring-4 ring-white/30 ring-offset-2 ring-offset-[#09090b] shadow-[0_0_20px_rgba(6,182,212,0.8)] scale-110' : ''}
-              ${isActiveP2 ? 'ring-4 ring-white/30 ring-offset-2 ring-offset-[#09090b] shadow-[0_0_20px_rgba(245,158,11,0.8)] scale-110' : ''}
-              ${!isP1 && !isP2 ? 'bg-zinc-800' : ''}
-              ${isValidMove && !isP1 && !isP2 ? `cursor-pointer ring-2 ring-inset ${turn === 1 ? 'hover:bg-cyan-950/40 ring-cyan-500/50' : 'hover:bg-amber-950/40 ring-amber-500/50'}` : ''}
+              relative w-full h-full rounded-md transition-all duration-300 border border-zinc-900/10
+              ${isP1 ? `${theme.p1.color} ${theme.p1.glow} z-10 border-white/20` : ''}
+              ${isP2 ? `${theme.p2.color} ${theme.p2.glow} z-10 border-white/20` : ''}
+              ${isActiveP1 ? `ring-4 ring-white/30 ring-offset-2 ring-offset-[#09090b] scale-105 z-20` : ''}
+              ${isActiveP2 ? `ring-4 ring-white/30 ring-offset-2 ring-offset-[#09090b] scale-105 z-20` : ''}
+              ${!isP1 && !isP2 ? theme.cellBg : ''}
+              ${isValidMove && !isP1 && !isP2 ? `cursor-pointer ring-2 ring-inset ${turn === 1 ? theme.validP1 : theme.validP2}` : ''}
             `}
             style={{
               gridRow: r * 2 + 1,
               gridColumn: c * 2 + 1,
             }}
           >
-            {/* Dots for valid moves */}
             {isValidMove && !isP1 && !isP2 && (
-              <div className={`absolute inset-0 m-auto w-1/4 h-1/4 rounded-full opacity-60 transition-colors duration-300 ${turn === 1 ? 'bg-cyan-400' : 'bg-amber-400'}`} />
+              <div className={`absolute inset-0 m-auto w-1/4 h-1/4 rounded-full opacity-60 transition-colors duration-300 ${turn === 1 ? theme.p1.color : theme.p2.color}`} />
             )}
           </div>
         );
@@ -338,11 +358,11 @@ export default function LocalGame() {
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         if (hWalls[r][c]) {
-          const wcolor = hWalls[r][c] === 1 ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.6)]' : 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.6)]';
+          const ownerTheme = hWalls[r][c] === 1 ? theme.p1 : theme.p2;
           elements.push(
              <div
                key={`hwall-${r}-${c}`}
-               className={`${wcolor} rounded-full z-10 w-full h-full`}
+               className={`${ownerTheme.color} ${ownerTheme.glow} rounded-full z-10 w-full h-full`}
                style={{
                  gridRow: r * 2 + 2,
                  gridColumn: `${c * 2 + 1} / span 3`,
@@ -352,11 +372,11 @@ export default function LocalGame() {
           );
         }
         if (vWalls[r][c]) {
-          const wcolor = vWalls[r][c] === 1 ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.6)]' : 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.6)]';
+          const ownerTheme = vWalls[r][c] === 1 ? theme.p1 : theme.p2;
           elements.push(
              <div
                key={`vwall-${r}-${c}`}
-               className={`${wcolor} rounded-full z-10 w-full h-full`}
+               className={`${ownerTheme.color} ${ownerTheme.glow} rounded-full z-10 w-full h-full`}
                style={{
                  gridRow: `${r * 2 + 1} / span 3`,
                  gridColumn: c * 2 + 2,
@@ -372,28 +392,24 @@ export default function LocalGame() {
 
   const renderIntersections = () => {
     const elements = [];
+    const activeColor = turn === 1 ? theme.p1.color : theme.p2.color;
+    const activeShadow = turn === 1 ? theme.p1.glow : theme.p2.glow;
+
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
-        // Render preview if hovered OR if persistently selected (mobile/tap)
         const isSelected = selectedWall?.r === r && selectedWall?.c === c;
         const isHovered = hoverIntersect?.r === r && hoverIntersect?.c === c;
         const isActivePreview = isHovered || isSelected;
 
         let previewClass = 'opacity-0';
         let previewStyle = {};
-        
         let canPlace = false;
 
         if (isActivePreview && !winner && currentPlayerWalls > 0) {
           canPlace = canPlaceWall(r, c, wallDirection, hWalls, vWalls, p1Pos, p2Pos);
-          const activeColor = turn === 1 ? 'bg-cyan-500/50' : 'bg-amber-500/50';
-          const activeShadow = turn === 1 ? 'shadow-[0_0_15px_rgba(6,182,212,0.4)]' : 'shadow-[0_0_15px_rgba(245,158,11,0.4)]';
-          
-          // Selection gets a stronger highlighted border and pulsing animation to stand out on mobile
-          const highlightClass = isSelected ? `opacity-90 animate-pulse border-2 ${turn === 1 ? 'border-cyan-400' : 'border-amber-400'}` : 'opacity-65';
-
+          const highlightClass = isSelected ? `opacity-90 animate-pulse border-2 ${turn === 1 ? theme.p1.border : theme.p2.border}` : 'opacity-65';
           previewClass = canPlace 
-            ? `${highlightClass} ${activeColor} ${activeShadow}` 
+            ? `${highlightClass} ${activeColor} ${activeShadow}/50` 
             : 'opacity-50 bg-red-500/50';
           
           if (wallDirection === 'H') {
@@ -424,7 +440,7 @@ export default function LocalGame() {
             onMouseLeave={() => setHoverIntersect(null)}
             onClick={() => {
               if (winner || currentPlayerWalls <= 0) return;
-              if (turn === 2 && gameMode === 'bot') return; // Cannot place wall for bot
+              if (turn === 2 && gameMode === 'bot') return;
               
               if (selectedWall?.r === r && selectedWall?.c === c) {
                 handleWallClick(r, c);
@@ -451,90 +467,97 @@ export default function LocalGame() {
 
   if (appState === 'menu') {
     return (
-      <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col items-center justify-center p-6 font-sans">
-        <div className="w-full max-w-md mb-4">
-        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors text-sm font-medium">
-          ← Back to Home
-        </button>
-      </div>
-      <h1 className="text-5xl md:text-7xl font-black tracking-tighter mb-4 text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-amber-500 py-2">
-          Barricade
-        </h1>
-        <p className="text-zinc-400 mb-12 text-center max-w-sm">
-          A strategic 2-player board game where you must reach the opposite side before your opponent blocks you.
-        </p>
+      <div className="min-h-screen cyber-grid-bg text-zinc-100 flex flex-col items-center justify-center p-4 md:p-6 font-sans relative overflow-x-hidden selection:bg-cyan-500/30">
+        <div className="absolute inset-0 scanline pointer-events-none opacity-20" />
+        <div className="cyber-scanner" />
 
-        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl mb-8 space-y-6">
-          <div className="flex gap-2 p-1 bg-zinc-950 rounded-xl">
+        <div className="w-full max-w-md mb-4 flex justify-between items-center z-10">
+          <button 
+            onClick={() => navigate('/')} 
+            className="flex items-center gap-1 text-zinc-500 hover:text-white transition-colors text-xs font-mono font-bold"
+          >
+            ← Back to Lobby
+          </button>
+        </div>
+
+        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-6 md:p-8 rounded-2xl shadow-2xl relative z-10">
+          <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-cyan-500/60" />
+          
+          <h2 className="text-3xl font-mono font-black text-center mb-1 uppercase tracking-tight">
+            LOCAL STAGE
+          </h2>
+          <p className="text-zinc-500 text-[10px] text-center font-mono uppercase tracking-widest mb-8">
+            Deploy local proxy simulation
+          </p>
+
+          <div className="flex gap-2 p-1 bg-zinc-950 rounded-xl mb-6 border border-zinc-850">
             <button
               onClick={() => setGameMode('local')}
-              className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${gameMode === 'local' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              className={`flex-1 py-2.5 rounded-lg text-xs font-mono font-bold transition-all ${gameMode === 'local' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
-              2 Players Local
+              2 Players (LAN)
             </button>
             <button
               onClick={() => setGameMode('bot')}
-              className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${gameMode === 'bot' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              className={`flex-1 py-2.5 rounded-lg text-xs font-mono font-bold transition-all ${gameMode === 'bot' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
-              vs Computer
+              vs Core AI
             </button>
           </div>
 
           <div className="space-y-4">
-            <label className="flex flex-col gap-1.5 text-sm font-medium text-cyan-400">
-              Player 1 Name
+            <label className={`flex flex-col gap-1.5 text-xs font-mono font-bold ${theme.p1.text}`}>
+              Player 1 Handle
               <input 
                 value={p1Name}
                 onChange={(e) => setP1Name(e.target.value)}
-                className="w-full bg-zinc-950 border border-cyan-900/50 rounded-lg px-4 py-3 text-zinc-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-semibold"
-                placeholder="Player 1"
+                className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-zinc-200 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/25 transition-all font-semibold font-sans text-sm"
               />
             </label>
-            <label className={`flex flex-col gap-1.5 text-sm font-medium text-amber-500 transition-opacity ${gameMode === 'bot' ? 'opacity-50 pointer-events-none' : ''}`}>
-              Player 2 Name
+            <label className={`flex flex-col gap-1.5 text-xs font-mono font-bold ${theme.p2.text} transition-opacity ${gameMode === 'bot' ? 'opacity-40 pointer-events-none' : ''}`}>
+              Player 2 Handle
               <input 
                 value={gameMode === 'bot' ? 'Computer' : p2Name}
                 onChange={(e) => setP2Name(e.target.value)}
                 readOnly={gameMode === 'bot'}
-                className="w-full bg-zinc-950 border border-amber-900/50 rounded-lg px-4 py-3 text-zinc-200 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all font-semibold"
-                placeholder="Player 2"
+                className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-zinc-200 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/25 transition-all font-semibold font-sans text-sm"
               />
             </label>
 
             {gameMode === 'bot' && (
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-emerald-400">
-                Bot Difficulty
+              <label className="flex flex-col gap-1.5 text-xs font-mono font-bold text-emerald-400">
+                Core AI Strength
                 <select 
                   value={difficulty} 
                   onChange={(e: any) => setDifficulty(e.target.value)}
-                  className="w-full bg-zinc-950 border border-emerald-900/50 rounded-lg px-4 py-3 text-zinc-200 outline-none focus:border-emerald-500 transition-all font-semibold appearance-none"
+                  className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-3 text-zinc-200 outline-none focus:border-emerald-500 transition-all font-sans text-sm appearance-none font-semibold"
                 >
-                  <option value="easy">Easy</option>
-                  <option value="medium">Medium</option>
-                  <option value="hard">Hard</option>
+                  <option value="easy">Level 1 (Easy)</option>
+                  <option value="medium">Level 2 (Medium)</option>
+                  <option value="hard">Level 3 (Hard)</option>
                 </select>
               </label>
             )}
 
             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/80">
-               <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-400">
-                 Walls per Player
+               <label className="flex flex-col gap-1.5 text-xs font-mono font-bold text-zinc-500">
+                 Firewall Stock
                  <select 
                    value={initialWalls} 
                    onChange={(e) => setInitialWalls(Number(e.target.value))}
-                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-zinc-200 outline-none focus:border-zinc-500 transition-all font-semibold appearance-none"
+                   className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-2.5 text-zinc-200 outline-none focus:border-zinc-550 transition-all font-sans text-xs font-semibold appearance-none"
                  >
-                   <option value="5">5 Walls</option>
-                   <option value="10">10 Walls</option>
-                   <option value="15">15 Walls</option>
+                   <option value="5">5 Blocks</option>
+                   <option value="10">10 Blocks</option>
+                   <option value="15">15 Blocks</option>
                  </select>
                </label>
-               <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-400">
-                 Turn Time Limit
+               <label className="flex flex-col gap-1.5 text-xs font-mono font-bold text-zinc-500">
+                 Turn Buffer Limit
                  <select 
                    value={timeLimit} 
                    onChange={(e) => setTimeLimit(Number(e.target.value))}
-                   className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-zinc-200 outline-none focus:border-zinc-500 transition-all font-semibold appearance-none"
+                   className="w-full bg-zinc-950 border border-zinc-850 rounded-xl px-4 py-2.5 text-zinc-200 outline-none focus:border-zinc-550 transition-all font-sans text-xs font-semibold appearance-none"
                  >
                    <option value="15">15 Seconds</option>
                    <option value="30">30 Seconds</option>
@@ -545,10 +568,10 @@ export default function LocalGame() {
             </div>
           </div>
           <button 
-            onClick={() => { resetGame(); setAppState('game'); }}
-            className="w-full py-4 bg-white text-zinc-900 font-bold text-lg rounded-xl shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all"
+            onClick={() => { playSound('wall'); resetGame(); setAppState('game'); }}
+            className="w-full py-4 mt-8 bg-gradient-to-r from-cyan-500 to-amber-500 text-zinc-950 font-mono font-black text-base rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.2)] hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
           >
-            Start Game
+            LAUNCH PROTOCOL
           </button>
         </div>
       </div>
@@ -556,334 +579,373 @@ export default function LocalGame() {
   }
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 flex flex-col items-center py-10 font-sans">
-      <div className="max-w-xl md:max-w-5xl w-full px-4 flex flex-col md:flex-row items-center justify-between mb-8 pb-4 border-b border-zinc-900">
-        <h1 className="text-3xl font-bold tracking-tight mb-4 md:mb-0 flex items-center gap-2">
-          <span>Barricade</span>
-          <span className="text-[10px] bg-cyan-500/10 text-cyan-400 font-bold px-2 py-0.5 rounded-full ring-1 ring-cyan-500/20 uppercase tracking-widest leading-none">
-            {gameMode === 'bot' ? 'vs Computer' : 'Local'}
-          </span>
-        </h1>
-        <div className="flex gap-2 flex-wrap justify-center">
+    <div className="min-h-screen cyber-grid-bg text-zinc-100 flex flex-col items-center py-4 md:py-6 font-sans relative overflow-x-hidden selection:bg-cyan-500/30">
+      <div className="absolute inset-0 scanline pointer-events-none opacity-20" />
+      
+      {/* Top Header Panel */}
+      <div className="max-w-xl md:max-w-5xl w-full px-4 flex flex-col sm:flex-row items-center justify-between mb-4 pb-3 border-b border-zinc-850 z-10 gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-mono font-black uppercase tracking-tight flex items-center gap-1.5">
+            <span>BARRICADE</span>
+            <span className="text-[9px] bg-zinc-950 border border-zinc-850 text-cyan-400 font-mono font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+              {gameMode === 'bot' ? 'Core AI Simulation' : 'LAN Proxy'}
+            </span>
+          </h1>
+        </div>
+        
+        {/* Header Audio toggles & Menu Controls */}
+        <div className="flex gap-2 flex-wrap items-center">
           <button 
-            onClick={() => setShowHistory(prev => !prev)}
-            className={`flex items-center gap-2 text-xs md:text-sm font-medium px-4 py-2 rounded-md ring-1 ring-white/10 transition-all shadow-md ${
+            onClick={handleToggleMusic}
+            className={`p-2 rounded-lg border transition-all ${
+              !musicMuted 
+                ? 'bg-cyan-950/20 border-cyan-500/50 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
+                : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+            }`}
+            title="Toggle BGM"
+          >
+            <Music className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            onClick={handleToggleSfx}
+            className={`p-2 rounded-lg border transition-all ${
+              !sfxMuted 
+                ? 'bg-amber-950/20 border-amber-500/50 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]' 
+                : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+            }`}
+            title="Toggle SFX"
+          >
+            {sfxMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+          </button>
+
+          <div className="h-6 w-px bg-zinc-800 mx-1 hidden sm:block" />
+
+          <button 
+            onClick={() => { playSound('move'); setShowHistory(prev => !prev); }}
+            className={`flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-2 rounded-lg border transition-all shadow-md ${
               showHistory 
-                ? 'bg-amber-500/25 text-amber-300 ring-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                ? 'bg-amber-950/20 text-amber-400 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
+                : 'bg-zinc-900 border-zinc-850 hover:bg-zinc-850 text-zinc-400'
             }`}
           >
-            <History className="w-4 h-4" />
-            <span>Moves ({history.length})</span>
+            <History className="w-3.5 h-3.5" />
+            <span>LOGS ({history.length})</span>
           </button>
+          
           <button 
-            onClick={() => setAppState('menu')}
-            className="flex items-center gap-2 text-xs md:text-sm font-medium px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-md ring-1 ring-white/10 transition-colors text-zinc-300 shadow-md"
+            onClick={() => { playSound('error'); setAppState('menu'); }}
+            className="flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-850 rounded-lg transition-colors text-zinc-400"
           >
-            <Home className="w-4 h-4" />
-            <span className="hidden sm:inline">Menu</span>
+            <Home className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">MENU</span>
           </button>
+          
           <button 
             onClick={handleUndo}
             disabled={undoStack.length === 0}
-            className="flex items-center gap-2 text-xs md:text-sm font-medium px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md ring-1 ring-white/10 transition-colors text-zinc-300 shadow-md animate-pulse"
+            className="flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-2 bg-zinc-900 hover:bg-zinc-850 disabled:opacity-40 disabled:pointer-events-none border border-zinc-850 rounded-lg transition-colors text-zinc-400"
           >
-            <Undo2 className="w-4 h-4" />
-            <span className="hidden sm:inline">Undo</span>
+            <Undo2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">UNDO</span>
           </button>
+          
           <button 
-            onClick={() => setShowStats(true)}
-            className="flex items-center gap-2 text-xs md:text-sm font-medium px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-md ring-1 ring-white/10 transition-colors text-zinc-300 shadow-md"
+            onClick={() => { playSound('move'); setShowStats(true); }}
+            className="flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-850 rounded-lg transition-colors text-zinc-400"
           >
-            <BarChart2 className="w-4 h-4" />
-            <span className="hidden sm:inline">Stats</span>
+            <BarChart2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">STATS</span>
           </button>
+          
           <button 
-            onClick={resetGame}
-            className="flex items-center gap-2 text-xs md:text-sm font-medium px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-md ring-1 ring-white/10 transition-colors text-zinc-300 shadow-md"
+            onClick={() => { playSound('error'); resetGame(); }}
+            className="flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-850 rounded-lg transition-colors text-zinc-400"
           >
-            <RotateCcw className="w-4 h-4" />
-            <span className="hidden sm:inline">Restart</span>
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">RELOAD</span>
           </button>
         </div>
       </div>
 
-      <div className="w-full max-w-5xl px-4 flex flex-col lg:flex-row gap-8 items-start justify-center">
-        {/* Left column: Board, players, central turn indicator */}
+      <div className="w-full max-w-5xl px-4 flex flex-col lg:flex-row gap-6 items-start justify-center z-10">
+        
+        {/* Left Column: Board and Player Info cards */}
         <div className="flex-1 max-w-xl mx-auto w-full flex flex-col items-center">
           
-          <div className="w-full flex justify-between items-center mb-4 sm:mb-8 text-sm sm:text-base gap-4 relative">
-            <div className={`flex flex-col items-start px-3 py-2 sm:px-5 sm:py-4 rounded-xl border-2 transition-all duration-300 ${turn === 1 ? 'border-cyan-500 bg-cyan-950/30 shadow-[0_0_25px_rgba(6,182,212,0.15)] scale-105' : 'border-transparent bg-zinc-900/50 opacity-50 scale-100'}`}>
-              <span className="text-cyan-400 font-bold text-base sm:text-lg mb-0.5 sm:mb-1">{p1Name}</span>
-              <span className="text-xs sm:text-sm font-medium text-cyan-200/60">{p1Walls} walls</span>
+          {/* Active players indicator panel */}
+          <div className="w-full flex justify-between items-center mb-6 text-xs gap-3 relative">
+            
+            {/* Player 1 Card */}
+            <div className={`flex flex-col items-start px-4 py-3.5 rounded-xl border transition-all duration-300 ${
+              turn === 1 
+                ? `${theme.p1.bg} ${theme.p1.border} ${theme.p1.glow} scale-102` 
+                : 'border-transparent bg-zinc-900/50 opacity-40 scale-98'
+            }`}>
+              <span className={`font-mono font-black text-sm mb-0.5 ${theme.p1.text}`}>{p1Name}</span>
+              <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase tracking-wider">{p1Walls} firewalls</span>
               {turn === 1 && !winner && timeLimit < 999 && (
-                <span className="text-[10px] sm:text-xs font-bold text-cyan-300 mt-1 sm:mt-2 bg-cyan-950/50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md">{timeLeft}s remaining</span>
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md mt-2 bg-zinc-950 ${theme.p1.text}`}>{timeLeft}s remaining</span>
               )}
             </div>
 
+            {/* Middle Winner or Turn Indicator */}
             {winner ? (
               <div className="text-center flex-1 flex flex-col items-center z-10">
-                <span className={`text-xl sm:text-2xl font-black tracking-tight ${winner === 1 ? 'text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.4)]' : 'text-amber-400 drop-shadow-[0_0_10px_rgba(245,158,11,0.4)]'}`}>
-                  {winner === 1 ? p1Name : (gameMode === 'bot' ? 'Computer' : p2Name)} Wins!
+                <span className={`text-md font-mono font-black tracking-wider uppercase animate-bounce ${winner === 1 ? theme.p1.text : theme.p2.text}`}>
+                  {winner === 1 ? p1Name : (gameMode === 'bot' ? 'Computer' : p2Name)} WINS!
                 </span>
+                <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-widest mt-1">Goal Breached</span>
               </div>
             ) : (
-              /* Highly Polished Interactive Turn Indicator Component */
               <div className="flex-1 flex flex-col items-center justify-center text-center">
                 <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border bg-zinc-950/90 shadow-md ${
-                  turn === 1 
-                    ? 'border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.25)]' 
-                    : 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                  turn === 1 ? theme.p1.border : theme.p2.border
                 }`}>
                   <span className="relative flex h-2 w-2">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                      turn === 1 ? 'bg-cyan-400' : 'bg-amber-400'
+                      turn === 1 ? theme.p1.color : theme.p2.color
                     }`}></span>
                     <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                      turn === 1 ? 'bg-cyan-500' : 'bg-amber-500'
+                      turn === 1 ? theme.p1.color : theme.p2.color
                     }`}></span>
                   </span>
-                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-zinc-100">
-                    {turn === 1 ? "P1 Turn" : (gameMode === 'bot' ? "Bot Turn" : "P2 Turn")}
+                  <span className="text-[9px] font-mono font-black uppercase tracking-wider text-zinc-300">
+                    {turn === 1 ? "Node 1 Active" : "Node 2 Active"}
                   </span>
                 </div>
-                {/* Active arrow animation flow */}
-                <span className={`text-[10px] font-bold tracking-widest uppercase mt-1 ${
-                  turn === 1 ? 'text-cyan-400 animate-pulse' : 'text-amber-500 animate-pulse'
+                <span className={`text-[8px] font-mono font-bold tracking-widest uppercase mt-1.5 ${
+                  turn === 1 ? theme.p1.text : theme.p2.text
                 }`}>
-                  {turn === 1 ? '← Active' : 'Active →'}
+                  {turn === 1 ? '← Active Channel' : 'Active Channel →'}
                 </span>
               </div>
             )}
 
-            <div className={`flex flex-col items-end px-3 py-2 sm:px-5 sm:py-4 rounded-xl border-2 transition-all duration-300 ${turn === 2 ? 'border-amber-500 bg-amber-950/30' : 'border-transparent bg-zinc-900/50 opacity-50'}`}>
-              <span className="text-amber-500 font-bold text-base sm:text-lg mb-0.5 sm:mb-1">{gameMode === 'bot' ? 'Computer' : p2Name}</span>
-              <span className="text-xs sm:text-sm font-medium text-amber-200/60">{p2Walls} walls</span>
+            {/* Player 2 Card */}
+            <div className={`flex flex-col items-end px-4 py-3.5 rounded-xl border transition-all duration-300 ${
+              turn === 2 
+                ? `${theme.p2.bg} ${theme.p2.border} ${theme.p2.glow} scale-102` 
+                : 'border-transparent bg-zinc-900/50 opacity-40 scale-98'
+            }`}>
+              <span className={`font-mono font-black text-sm mb-0.5 ${theme.p2.text}`}>{gameMode === 'bot' ? 'Computer' : p2Name}</span>
+              <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase tracking-wider">{p2Walls} firewalls</span>
               {turn === 2 && !winner && timeLimit < 999 && (
-                <span className="text-[10px] sm:text-xs font-bold text-amber-300 mt-1 sm:mt-2 bg-amber-950/50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md">{timeLeft}s remaining</span>
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md mt-2 bg-zinc-950 ${theme.p2.text}`}>{timeLeft}s remaining</span>
               )}
             </div>
+
           </div>
 
-      <div className="relative select-none p-2 sm:p-4 rounded-xl bg-zinc-900 border border-zinc-800 shadow-2xl overflow-hidden w-full max-w-[95vw] sm:max-w-md md:max-w-lg aspect-square mx-auto mb-8">
-        <div 
-          className="grid relative w-full h-full rotate-180"
-          style={{
-            gridTemplateRows: "repeat(8, minmax(0, 1fr) min(2.5vw, 12px)) minmax(0, 1fr)",
-            gridTemplateColumns: "repeat(8, minmax(0, 1fr) min(2.5vw, 12px)) minmax(0, 1fr)",
-          }}
-          onMouseLeave={() => setHoverIntersect(null)}
-        >
-          {/* Target Lines */}
-          <div className="absolute top-0 left-0 w-full h-1 bg-cyan-500/20 -translate-y-2 rounded-full" />
-          <div className="absolute bottom-0 left-0 w-full h-1 bg-amber-500/20 translate-y-2 rounded-full" />
-          
-          {renderCells()}
-          {renderPlacedWalls()}
-          {renderIntersections()}
-        </div>
-      </div>
-      
-      {/* Active Player Wall Controls */}
-      <div className={`mt-4 sm:mt-8 flex flex-col items-center gap-4 transition-all duration-300 w-full ${winner || currentPlayerWalls === 0 ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
-        {!winner && currentPlayerWalls > 0 && (
-          <div className="flex flex-col items-center gap-3 w-full max-w-md px-2">
-            
-            {/* Wall Orientation Selector Row */}
-            <div className={`flex items-center gap-1.5 p-1 rounded-xl border transition-colors duration-300 ${
-              turn === 1 
-                ? 'bg-cyan-950/20 border-cyan-500/30' 
-                : 'bg-amber-950/20 border-amber-500/30'
-            }`}>
-              <span className="px-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 text-[10px]">Orientation:</span>
-              <button 
-                onClick={() => {
-                  setWallDirection('H');
-                }}
-                className={`flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
-                  wallDirection === 'H' 
-                    ? (turn === 1 ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/20' : 'bg-amber-500 text-white shadow-md shadow-amber-500/20') 
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <div className={`w-3 h-1 rounded-sm ${wallDirection === 'H' ? 'bg-white' : 'bg-current'}`} />
-                <span>Horizontal</span>
-              </button>
-              <button 
-                onClick={() => {
-                  setWallDirection('V');
-                }}
-                className={`flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
-                  wallDirection === 'V' 
-                    ? (turn === 1 ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/20' : 'bg-amber-500 text-white shadow-md shadow-amber-500/20') 
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <div className={`w-1 h-3 rounded-sm ${wallDirection === 'V' ? 'bg-white' : 'bg-current'}`} />
-                <span>Vertical</span>
-              </button>
+          {/* Grid Game Board Container (with limited heights for mobile screens) */}
+          <div className="relative select-none p-2 sm:p-4 rounded-xl bg-zinc-950 border border-zinc-800 shadow-2xl overflow-hidden w-full max-w-[95vw] sm:max-w-md md:max-w-lg aspect-square mx-auto mb-6 max-h-[60vh] sm:max-h-[65vh]">
+            <div 
+              className="grid relative w-full h-full rotate-180"
+              style={{
+                gridTemplateRows: "repeat(8, minmax(0, 1fr) min(2.5vw, 12px)) minmax(0, 1fr)",
+                gridTemplateColumns: "repeat(8, minmax(0, 1fr) min(2.5vw, 12px)) minmax(0, 1fr)",
+              }}
+              onMouseLeave={() => setHoverIntersect(null)}
+            >
+              {/* Target Boundaries */}
+              <div className={`absolute top-0 left-0 w-full h-0.5 opacity-30 -translate-y-2 rounded-full ${theme.p1.color}`} />
+              <div className={`absolute bottom-0 left-0 w-full h-0.5 opacity-30 translate-y-2 rounded-full ${theme.p2.color}`} />
+              
+              {renderCells()}
+              {renderPlacedWalls()}
+              {renderIntersections()}
             </div>
-
-            {/* Mobile Touch draft helper panel */}
-            {selectedWall ? (
-              <div className="w-full bg-zinc-900/90 border border-zinc-800 rounded-xl p-3.5 shadow-xl flex items-center justify-between gap-3 animate-fade-in">
-                <div className="flex flex-col items-start gap-0.5">
-                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Wall Draft Preview</span>
-                  <span className={`text-xs font-bold leading-none ${turn === 1 ? 'text-cyan-400' : 'text-amber-400'}`}>
-                    {wallDirection === 'H' ? 'Horizontal' : 'Vertical'} @ R{selectedWall.r + 1}, C{selectedWall.c + 1}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedWall(null)}
-                    className="p-2 bg-zinc-800 hover:bg-zinc-700/80 rounded-lg text-zinc-400 hover:text-zinc-100 transition-colors border border-zinc-700/30 text-xs"
-                    title="Cancel selection"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Check if it can actually be placed
-                      if (canPlaceWall(selectedWall.r, selectedWall.c, wallDirection, hWalls, vWalls, p1Pos, p2Pos)) {
-                        handleWallClick(selectedWall.r, selectedWall.c, wallDirection);
-                      } else {
-                        playSound('error');
-                      }
-                    }}
-                    className={`px-3.5 py-2 rounded-lg font-bold text-xs transition-all active:scale-95 shadow-md shadow-black/30 ${
-                      canPlaceWall(selectedWall.r, selectedWall.c, wallDirection, hWalls, vWalls, p1Pos, p2Pos)
-                        ? (turn === 1 ? 'bg-cyan-400 text-cyan-950 hover:bg-cyan-300' : 'bg-amber-400 text-amber-950 hover:bg-amber-300')
-                        : 'bg-zinc-800 text-zinc-600 border border-zinc-700/50 cursor-not-allowed'
+          </div>
+          
+          {/* Wall Direction Control Interface */}
+          <div className={`mt-2 flex flex-col items-center gap-3 transition-all duration-300 w-full ${winner || currentPlayerWalls === 0 ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+            {!winner && currentPlayerWalls > 0 && (
+              <div className="flex flex-col items-center gap-2.5 w-full max-w-md px-2">
+                
+                {/* Selector */}
+                <div className={`flex items-center gap-1.5 p-1 rounded-xl border transition-colors duration-300 ${
+                  turn === 1 ? 'bg-cyan-950/20 border-cyan-500/30' : 'bg-amber-950/20 border-amber-500/30'
+                }`}>
+                  <span className="px-3.5 text-[8px] font-mono font-bold uppercase tracking-wider text-zinc-500">FIREWALL ANGLE:</span>
+                  <button 
+                    onClick={() => { playSound('move'); setWallDirection('H'); }}
+                    className={`flex items-center justify-center gap-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      wallDirection === 'H' 
+                        ? (turn === 1 ? 'bg-cyan-500 text-zinc-950 shadow-md' : 'bg-amber-500 text-zinc-950 shadow-md') 
+                        : 'text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    Confirm Wall
+                    <div className="w-3 h-0.5 rounded-sm bg-current" />
+                    <span>HORIZ</span>
+                  </button>
+                  <button 
+                    onClick={() => { playSound('move'); setWallDirection('V'); }}
+                    className={`flex items-center justify-center gap-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      wallDirection === 'V' 
+                        ? (turn === 1 ? 'bg-cyan-500 text-zinc-950 shadow-md' : 'bg-amber-500 text-zinc-950 shadow-md') 
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <div className="w-0.5 h-3 rounded-sm bg-current" />
+                    <span>VERT</span>
                   </button>
                 </div>
-              </div>
-            ) : (
-              <div className="text-[10px] text-zinc-500 font-medium select-none text-center py-1 flex items-center gap-1.5 justify-center opacity-85">
-                <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 animate-pulse" />
-                <span>Tap any grid row/column crossing on the board to draft, then confirm placement.</span>
+
+                {/* Mobile Draft Preview Panel */}
+                {selectedWall ? (
+                  <div className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 shadow-xl flex items-center justify-between gap-3 animate-fade-in">
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className="text-[8px] text-zinc-500 font-mono font-bold uppercase tracking-wider">Wall Draft Mode</span>
+                      <span className={`text-xs font-mono font-bold leading-none ${turn === 1 ? theme.p1.text : theme.p2.text}`}>
+                        {wallDirection === 'H' ? 'Horizontal' : 'Vertical'} @ R{selectedWall.r + 1}, C{selectedWall.c + 1}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { playSound('error'); setSelectedWall(null); }}
+                        className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-850 rounded-lg text-zinc-400 hover:text-zinc-200 transition-colors border border-zinc-800 text-[10px] font-mono"
+                      >
+                        CANCEL
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (canPlaceWall(selectedWall.r, selectedWall.c, wallDirection, hWalls, vWalls, p1Pos, p2Pos)) {
+                            handleWallClick(selectedWall.r, selectedWall.c);
+                          } else {
+                            playSound('error');
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-lg font-mono font-bold text-[10px] transition-all cursor-pointer active:scale-95 shadow-md ${
+                          canPlaceWall(selectedWall.r, selectedWall.c, wallDirection, hWalls, vWalls, p1Pos, p2Pos)
+                            ? (turn === 1 ? 'bg-cyan-500 hover:bg-cyan-400 text-zinc-950' : 'bg-amber-500 hover:bg-amber-400 text-zinc-950')
+                            : 'bg-zinc-900 text-zinc-650 border border-zinc-850 cursor-not-allowed'
+                        }`}
+                      >
+                        CONFIRM SECURE
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[9px] text-zinc-500 font-mono font-medium text-center py-1 flex items-center gap-1.5 justify-center opacity-85 select-none">
+                    <span className="h-1 w-1 rounded-full bg-zinc-600 animate-pulse" />
+                    <span>Tap any coordinate intersection on the grid to deploy a firewall barricade.</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
+
+        </div>
+
+        {/* Right Column: Move history logs sidebar */}
+        {showHistory && (
+          <div 
+            className="fixed inset-0 bg-black/70 backdrop-blur-xs z-40 lg:hidden"
+            onClick={() => setShowHistory(false)}
+          />
         )}
-      </div>
 
-      <p className="mt-8 text-zinc-500 text-sm max-w-lg text-center px-4 leading-relaxed mb-6">
-        <strong>Goal:</strong> Reach the opposite side of the board. 
-        <br />
-        <strong>Turn:</strong> Move your pawn OR place a wall. You cannot jump over walls, and you cannot completely trap a player.
-      </p>
-
-      {/* Target of left column close */}
-      </div>
-
-      {/* Right column: Move History sidebar */}
-      {/* Drawer backdrop on mobile */}
-      {showHistory && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
-          onClick={() => setShowHistory(false)}
-        />
-      )}
-
-      {/* Sidebar / slide-out drawer container */}
-      <div className={`
-        ${showHistory 
-          ? 'fixed inset-y-0 right-0 z-50 w-[21rem] bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col transition-all duration-300 translate-x-0 scale-100 p-6 animate-fade-in'
-          : 'hidden lg:flex lg:flex-col w-80 bg-zinc-900/30 border border-zinc-800/80 rounded-2xl shadow-xl h-[620px] shrink-0 p-6'
-        }
-      `}>
-        <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3">
-          <div className="flex items-center gap-2 text-amber-500">
-            <History className="w-5 h-5 animate-pulse" />
-            <h2 className="text-lg font-bold tracking-tight text-white">Move History</h2>
+        <div className={`
+          ${showHistory 
+            ? 'fixed inset-y-0 right-0 z-50 w-[21rem] bg-zinc-950 border-l border-zinc-850 shadow-2xl flex flex-col transition-all duration-300 translate-x-0 scale-100 p-6'
+            : 'hidden lg:flex lg:flex-col w-80 bg-zinc-900/10 border border-zinc-850/80 rounded-2xl shadow-xl h-[580px] shrink-0 p-6'
+          }
+        `}>
+          <div className="flex items-center justify-between mb-4 border-b border-zinc-850 pb-3">
+            <div className="flex items-center gap-2 text-amber-500">
+              <History className="w-4 h-4 animate-pulse" />
+              <h2 className="text-sm font-mono font-bold tracking-tight text-white uppercase">History Output</h2>
+            </div>
+            <span className="text-[10px] font-mono bg-zinc-950 border border-zinc-850 px-2 py-0.5 rounded text-zinc-400 font-bold">
+              {history?.length || 0} {history?.length === 1 ? 'record' : 'records'}
+            </span>
+            {showHistory && (
+              <button 
+                onClick={() => setShowHistory(false)}
+                className="lg:hidden text-zinc-500 hover:text-white p-1 hover:bg-zinc-800 rounded-md transition-all border border-zinc-800"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-          <span className="text-xs font-mono bg-zinc-800 px-2 py-0.5 rounded text-zinc-400 font-bold">
-            {history?.length || 0} {history?.length === 1 ? 'move' : 'moves'}
-          </span>
-          {showHistory && (
-            <button 
-              onClick={() => setShowHistory(false)}
-              className="lg:hidden text-zinc-400 hover:text-white p-1 hover:bg-zinc-800 rounded-md transition-all border border-zinc-800"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+
+          {/* Logs lists */}
+          <div className="flex-1 overflow-y-auto pr-1 space-y-3 scrollbar-thin">
+            {(history?.length || 0) === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                <p className="text-xs font-mono text-zinc-500">Simulation log empty.</p>
+                <p className="text-[10px] text-zinc-650 mt-1">Make a core move or firewall lock to print records.</p>
+              </div>
+            ) : (
+              <div className="relative border-l border-zinc-850 ml-3 pl-4 space-y-3.5 py-2 font-mono text-[11px]">
+                {history.map((log: string, idx: number) => {
+                  const isP1 = log.includes(p1Name);
+                  const isGameOver = log.toLowerCase().includes('breaches') || log.toLowerCase().includes('wins') || log.toLowerCase().includes('won');
+                  
+                  return (
+                    <div key={idx} className="relative leading-relaxed group">
+                      <div className={`absolute -left-[21px] top-1 w-2 h-2 rounded-full ring-2 ring-zinc-950 transition-transform duration-300 group-hover:scale-125 ${
+                        isGameOver 
+                          ? 'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.7)] animate-pulse' 
+                          : isP1 
+                            ? theme.p1.color 
+                            : theme.p2.color
+                      }`} />
+                      
+                      <div className="flex justify-between items-baseline gap-2">
+                        <span className="text-zinc-600 text-[9px] shrink-0 font-bold">#{idx + 1}</span>
+                        <p className={`flex-1 ${isGameOver ? 'text-purple-400 font-bold' : 'text-zinc-400'}`}>
+                          {log}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={historyEndRef} />
+              </div>
+            )}
+          </div>
+          <div className="mt-4 pt-3 border-t border-zinc-850 flex items-center justify-between text-[9px] font-mono text-zinc-600 selection:bg-transparent">
+            <span>OFFLINE INTERFACE LOG</span>
+            <span className="flex items-center gap-1 font-semibold text-zinc-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 inline-block" />
+              SECURE DOCK
+            </span>
+          </div>
         </div>
 
-        {/* Move list */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-3 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-          {(history?.length || 0) === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-4">
-              <p className="text-sm text-zinc-500">No actions made yet.</p>
-              <p className="text-xs text-zinc-600 mt-1">Make a move on the board to start logging history!</p>
-            </div>
-          ) : (
-            <div className="relative border-l border-zinc-800/80 ml-3 pl-4 space-y-3.5 py-2 font-medium">
-              {history.map((log: string, idx: number) => {
-                const isP1 = log.includes(p1Name);
-                const isGameOver = log.toLowerCase().includes('wins') || log.toLowerCase().includes('won') || log.toLowerCase().includes('wins!');
-                
-                return (
-                  <div key={idx} className="relative text-xs leading-relaxed group">
-                    {/* Timeline Dot */}
-                    <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full ring-2 ring-zinc-950 transition-transform duration-300 group-hover:scale-125 ${
-                      isGameOver 
-                        ? 'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.7)] animate-pulse' 
-                        : isP1 
-                          ? 'bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)]' 
-                          : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'
-                    }`} />
-                    
-                    <div className="flex justify-between items-baseline gap-2">
-                      <span className="text-zinc-500 font-mono text-[10px] shrink-0 font-bold">#{idx + 1}</span>
-                      <p className={`flex-1 ${isGameOver ? 'text-purple-400 font-semibold tracking-wide' : 'text-zinc-300'}`}>
-                        {log}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={historyEndRef} />
-            </div>
-          )}
-        </div>
-        <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500 selection:bg-transparent">
-          <span>Barricade Offline Log</span>
-          <span className="animate-pulse flex items-center gap-1 font-semibold text-zinc-500">
-            <span className="h-1.5 w-1.5 rounded-full bg-zinc-500 inline-block animate-ping" />
-            STANDALONE
-          </span>
-        </div>
-      </div>
-      
-      {/* Target of outer rows close */}
       </div>
 
       {/* Stats Modal */}
       {showStats && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-sm w-full shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-bold text-zinc-100">Game Statistics</h2>
-              <button onClick={() => setShowStats(false)} className="text-zinc-400 hover:text-white transition-colors">
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="glass-panel border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl relative">
+            <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-cyan-500/50" />
+            
+            <div className="flex justify-between items-center mb-6 pb-2 border-b border-zinc-850">
+              <h2 className="text-sm font-mono font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-1">
+                <BarChart2 className="w-4 h-4 text-cyan-400" />
+                <span>Simulation Stats</span>
+              </h2>
+              <button 
+                onClick={() => { playSound('error'); setShowStats(false); }} 
+                className="text-zinc-500 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center p-3 bg-zinc-800/50 rounded-lg">
-                <span className="text-zinc-400">Games Played</span>
-                <span className="font-bold text-lg">{stats.gamesPlayed}</span>
+            
+            <div className="space-y-3.5 text-xs font-mono">
+              <div className="flex justify-between items-center p-3 bg-zinc-950 border border-zinc-900 rounded-lg">
+                <span className="text-zinc-500">ROUNDS RUN</span>
+                <span className="font-bold text-zinc-300">{stats.gamesPlayed}</span>
               </div>
-              <div className="flex justify-between items-center p-3 bg-cyan-950/20 border border-cyan-900/30 rounded-lg">
-                <span className="text-cyan-400 font-medium">{p1Name} Wins</span>
-                <span className="font-bold text-lg text-cyan-300">{stats.p1Wins}</span>
+              <div className="flex justify-between items-center p-3 bg-cyan-950/15 border border-cyan-900/30 rounded-lg">
+                <span className="text-cyan-400 font-medium">{p1Name} BREACHES</span>
+                <span className="font-bold text-cyan-400">{stats.p1Wins}</span>
               </div>
-              <div className="flex justify-between items-center p-3 bg-amber-950/20 border border-amber-900/30 rounded-lg">
-                <span className="text-amber-500 font-medium">{p2Name} Wins</span>
-                <span className="font-bold text-lg text-amber-400">{stats.p2Wins}</span>
+              <div className="flex justify-between items-center p-3 bg-amber-950/15 border border-amber-900/30 rounded-lg">
+                <span className="text-amber-500 font-medium">{p2Name} BREACHES</span>
+                <span className="font-bold text-amber-500">{stats.p2Wins}</span>
               </div>
             </div>
           </div>
@@ -892,4 +954,3 @@ export default function LocalGame() {
     </div>
   );
 }
-
